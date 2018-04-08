@@ -1,0 +1,9 @@
+*.tex
+*.log
+*.aux
+*.pdf
+
+# Trash OS X Stuff
+.DS_Store
+Thumbs.db
+*~
