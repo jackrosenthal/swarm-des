@@ -7,18 +7,29 @@ from functools import partial
 
 
 def dist(a, b):
+    """
+    Compute Euclidian distance between points ``a`` and ``b``.
+
+    :param a: 2-``tuple``
+    :param b: 2-``tuple``
+    :return: The distance between ``a`` and ``b``
+    :rtype: ``float``
+    """
     return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)))
 
 
 def circle_angle(point, center=(0, 0)):
     """
     Compute the angle of a point along a circle, given a center
-    ``center``. Results are in (-pi, pi]
+    ``center``. Results are in ``(-pi, pi]``
     """
     return math.atan2(point[1] - center[1], point[0] - center[0])
 
 
 def tikzpos(p):
+    """
+    Return the representation of a coordinate in TikZ coordinates.
+    """
     return '({},{})'.format(*p)
 
 
@@ -34,6 +45,9 @@ class Robot:
 
     @property
     def battery_level(self):
+        """
+        The battery level of the robot.
+        """
         return (self.initial_battery_level
                 - self.battery_degrade_factor
                 * self.distance_travelled)
@@ -94,6 +108,9 @@ class Task:
 
 @attr.s(cmp=False)
 class Event:
+    """
+    Base class for all events.
+    """
     time = attr.ib(type=float)
     def __lt__(self, other):
         def order(e):
@@ -127,6 +144,9 @@ class TaskCreated(Event):
 
 
 def iter_chunks(it, n=3):
+    """
+    Iterate over chunks of size ``n`` from the iterable ``it``.
+    """
     it = iter(it)
     chunk = []
     while True:
@@ -143,10 +163,21 @@ def iter_chunks(it, n=3):
 
 
 def partition_stupid(state):
+    """
+    Stupid partitioning method: partition the robots evenly among all
+    tasks, simply based on their order listed in the system state.
+
+    Intentionally bad: gives us a good baseline.
+    """
     yield from iter_chunks(state.robots, len(state.robots) // len(state.tasks))
 
 
 def position_static(task, robots):
+    r"""
+    Position the robots statically in a circle around the task. The
+    first robot will be placed at :math:`0` radians, the second robot at
+    :math:`\frac{2\pi}{k}` radians, ...
+    """
     sep = (2 * math.pi) / len(robots)
     for x in range(len(robots)):
         theta = x * sep
@@ -156,6 +187,9 @@ def position_static(task, robots):
 
 @attr.s(cmp=False)
 class BeginTravelToTask(Event):
+    """
+    The robot begins their travel to a task.
+    """
     robot = attr.ib()
     destination = attr.ib(type=tuple)
     dest_task = attr.ib()
@@ -171,6 +205,13 @@ class BeginTravelToTask(Event):
 
 @attr.s(cmp=False)
 class ArrivalAtTask(Event):
+    """
+    The robot has (potentially) arrived at a task. Cancelled if the
+    robot made other tavel plans in the mean time.
+
+    If all robots have arrived at the task, create a :class:`TaskBegin`
+    event.
+    """
     robot = attr.ib()
     task = attr.ib()
 
@@ -185,6 +226,9 @@ class ArrivalAtTask(Event):
 
 @attr.s(cmp=False)
 class TaskBegin(Event):
+    """
+    The robot has begun work on a task.
+    """
     task = attr.ib()
 
     def __call__(self, state):
@@ -211,11 +255,18 @@ class TaskBegin(Event):
 
 
 class MetaEvent(Event):
+    """
+    Base class for all metaevents.
+    """
     pass
 
 
 @attr.s(cmp=False)
 class TikzDraw(MetaEvent):
+    """
+    Metaevent to output a frame of drawing for TikZ. Only occurs
+    if the program was called with the ``--tikz`` flag.
+    """
     def __call__(self, state):
         state.tikz.write(r'''
             \begin{{tikzpicture}}[scale=0.6]
