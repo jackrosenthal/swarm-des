@@ -2,6 +2,10 @@
 *.log
 *.aux
 *.pdf
+__pycache__
+
+/doc/_build
+/doc/api
 
 # Trash OS X Stuff
 .DS_Store
