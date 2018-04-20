@@ -4,6 +4,7 @@ import heapq
 import argparse
 import math
 from functools import partial
+from itertools import chain
 
 
 def dist(a, b):
@@ -42,6 +43,7 @@ class Robot:
     travel_speed = attr.ib(default=1.0, type=float)
     distance_travelled = attr.ib(default=0.0, type=float)
     assigned_task = attr.ib(default=None)
+    arrival_event = attr.ib(default=None, init=False)
 
     @property
     def battery_level(self):
@@ -59,6 +61,10 @@ class Robot:
         """
         cur_pos, travelled = self.position(current_time)
         self.distance_travelled += travelled
+
+        if self.arrival_event:
+            self.arrival_event.cancelled = True
+
         d = dist(cur_pos, pos)
 
         def position(t):
@@ -112,6 +118,8 @@ class Event:
     Base class for all events.
     """
     time = attr.ib(type=float)
+    cancelled = attr.ib(type=bool, default=False, init=False)
+
     def __lt__(self, other):
         def order(e):
             return (e.time, isinstance(e, MetaEvent), id(e.__class__))
@@ -134,7 +142,8 @@ class TaskCreated(Event):
         state.tasks.append(self.task)
         partitions = state.robot_partitioning_func(state)
         for task, robots in zip(state.tasks, partitions):
-            task.assigned_robots = list(robots)
+            robots = list(robots)
+            task.assigned_robots = robots
             task.present_robots = []
             positions = state.task_position_func(task, robots)
             for robot, position in zip(robots, positions):
@@ -169,7 +178,13 @@ def partition_stupid(state):
 
     Intentionally bad: gives us a good baseline.
     """
-    yield from iter_chunks(state.robots, len(state.robots) // len(state.tasks))
+    it = iter_chunks(state.robots, len(state.robots) // len(state.tasks))
+    for i, c in enumerate(it):
+        if i < len(state.tasks) - 1:
+            yield c
+        else:
+            # excess get shoved into last group
+            yield chain(c, *it)
 
 
 def position_static(task, robots):
@@ -196,11 +211,9 @@ class BeginTravelToTask(Event):
 
     def __call__(self, state):
         arrival = self.robot.travel(state.clock, self.destination)
-        state.push_event(
-            ArrivalAtTask(
-                arrival,
-                self.robot,
-                self.dest_task))
+        ev = ArrivalAtTask(arrival, self.robot, self.dest_task)
+        self.robot.arrival_event = ev
+        state.push_event(ev)
 
 
 @attr.s(cmp=False)
@@ -216,9 +229,6 @@ class ArrivalAtTask(Event):
     task = attr.ib()
 
     def __call__(self, state):
-        if self.robot.assigned_task != self.task:
-            print("Dropping invalid event, the robot's task has changed")
-            return
         self.task.present_robots.append(self.robot)
         if all(x in self.task.present_robots for x in self.task.assigned_robots):
             state.push_event(TaskBegin(state.clock, self.task))
@@ -314,7 +324,7 @@ class SimState:
         return ev
 
 
-def run_sim(battery_seed, num_robots=6, *args, **kwargs):
+def run_sim(battery_seed, num_robots=6, task_creations=(), *args, **kwargs):
     state = SimState(*args, **kwargs)
     state.battery_rng = random.Random(battery_seed)
 
@@ -327,16 +337,8 @@ def run_sim(battery_seed, num_robots=6, *args, **kwargs):
                     position=(lambda k: lambda t: ((0.5, k + 0.5), 0))(k),
                     initial_battery_level=state.battery_rng.uniform(95, 100))))
 
-    tasks = [
-        (1, Task(1, (6, 8))),
-        (18, Task(2, (3, 9))),
-        (25, Task(3, (9, 3))),
-        (40, Task(4, (3, 3))),
-        (52, Task(5, (9, 9))),
-        (68, Task(6, (6, 4))),
-    ]
-    for t in tasks:
-        state.push_event(TaskCreated(*t))
+    for i, t in enumerate(task_creations):
+        state.push_event(TaskCreated(t[0], Task(i + 1, t[1:])))
 
     if state.tikz:
         state.tikz.write(r'''
@@ -346,7 +348,11 @@ def run_sim(battery_seed, num_robots=6, *args, **kwargs):
         state.push_event(TikzDraw(0))
 
     while state.eventq:
-        state.pop_event()(state)
+        ev = state.pop_event()
+        if ev.cancelled:
+            print("Skipping cancelled event: {!r}".format(ev))
+            continue
+        ev(state)
 
     if state.tikz:
         state.tikz.write(r'\end{document}' + '\n')
@@ -360,6 +366,16 @@ if __name__ == '__main__':
         type=int,
         default=6,
         help="Number of robots to initialize at beginning of sim")
+    parser.add_argument(
+        "--task-creations",
+        type=lambda s: eval("[{}]".format(s)),
+        default=[(1, 6, 8),
+                 (18, 3, 9),
+                 (25, 9, 3),
+                 (40, 3, 3),
+                 (52, 9, 9),
+                 (68, 6, 4)],
+        help="A comma separated list of (time, x, y) tuples")
     parser.add_argument(
         "--battery-seed",
         type=int,
