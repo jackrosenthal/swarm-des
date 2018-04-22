@@ -3,6 +3,7 @@ import attr
 import heapq
 import argparse
 import math
+import multiprocessing as mp
 from functools import partial
 from itertools import chain
 
@@ -44,6 +45,7 @@ class Robot:
     distance_travelled = attr.ib(default=0.0, type=float)
     assigned_task = attr.ib(default=None)
     arrival_event = attr.ib(default=None, init=False)
+    rosrobot = attr.ib(default=None, init=False)
 
     @property
     def battery_level(self):
@@ -112,6 +114,49 @@ class Task:
         return 'Task{}'.format(self.id)
 
 
+class ROSRobot(mp.Process):
+    """
+    A connection to a single ROS turtlesim robot, with a ROS node
+    running in its own process.
+    """
+    def __init__(self, robot_id, initpos):
+        self.queue = mp.Queue(maxsize=1)
+        self.initpos = initpos
+        self.turtlename = 'turtle{}'.format(robot_id)
+        super().__init__()
+
+    def run(self):
+        import rospy
+        import turtlesim.srv
+        self.rospy = rospy
+        rospy.init_node(self.turtlename)
+
+        rospy.wait_for_service('kill')
+        kill = rospy.ServiceProxy(
+            'kill',
+            turtlesim.srv.Kill)
+        try:
+            kill(self.turtlename)
+        except rospy.service.ServiceException:
+            pass
+
+        rospy.wait_for_service('spawn')
+        spawn = rospy.ServiceProxy(
+            'spawn',
+            turtlesim.srv.Spawn)
+
+        spawn(self.initpos[0], self.initpos[1], 0, self.turtlename)
+
+        rospy.wait_for_service('{}/teleport_absolute'.format(self.turtlename))
+        tp = rospy.ServiceProxy(
+            '{}/teleport_absolute'.format(self.turtlename),
+            turtlesim.srv.TeleportAbsolute)
+
+        while True:
+            tpargs = self.queue.get()
+            tp(*tpargs)
+
+
 @attr.s(cmp=False)
 class Event:
     """
@@ -132,6 +177,10 @@ class RobotCreated(Event):
 
     def __call__(self, state):
         state.robots.append(self.robot)
+        if state.ros:
+            self.robot.rosrobot = ROSRobot(
+                self.robot.id, (*self.robot.position(state.clock)[0], 0))
+            self.robot.rosrobot.start()
 
 
 @attr.s(cmp=False)
@@ -290,6 +339,17 @@ class TikzDraw(MetaEvent):
         if any(not isinstance(e, MetaEvent) for e in state.eventq):
             state.push_event(TikzDraw(state.clock + state.tikz_interval))
 
+@attr.s(cmp=False)
+class ROSDraw(MetaEvent):
+    """
+    Metaevent to draw on the ROS simulation.
+    """
+    def __call__(self, state):
+        for robot in state.robots:
+            pos, trav = robot.position(state.clock)
+            robot.rosrobot.queue.put((*pos, 0))
+        state.push_event(ROSDraw(state.clock + state.ros))
+
 
 @attr.s
 class SimState:
@@ -299,6 +359,8 @@ class SimState:
 
     tikz = attr.ib(default=None)
     tikz_interval = attr.ib(default=1)
+
+    ros = attr.ib(default=False, type=bool)
 
     clock = attr.ib(default=0.0, type=float)
 
@@ -347,6 +409,9 @@ def run_sim(battery_seed, num_robots=6, task_creations=(), *args, **kwargs):
             \begin{document}''')
         state.push_event(TikzDraw(0))
 
+    if state.ros:
+        state.push_event(ROSDraw(0))
+
     while state.eventq:
         ev = state.pop_event()
         if ev.cancelled:
@@ -391,6 +456,11 @@ if __name__ == '__main__':
         type=float,
         default=1.0,
         help="Interval between TikZ snapshots")
+    parser.add_argument(
+        "--ros",
+        type=float,
+        default=0,
+        help="ROS metaevent interval, 0 to disable (default)")
 
     args = parser.parse_args()
     run_sim(**vars(args))
