@@ -1,7 +1,7 @@
-*.tex
-*.log
-*.aux
-*.pdf
+/*.tex
+/*.log
+/*.aux
+/*.pdf
 __pycache__
 
 /doc/_build
