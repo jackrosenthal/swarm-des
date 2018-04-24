@@ -279,7 +279,8 @@ class ArrivalAtTask(Event):
 
     def __call__(self, state):
         self.task.present_robots.append(self.robot)
-        if all(x in self.task.present_robots for x in self.task.assigned_robots):
+        if all(x in self.task.present_robots
+               for x in self.task.assigned_robots):
             state.push_event(TaskBegin(state.clock, self.task))
 
 
@@ -299,7 +300,7 @@ class TaskBegin(Event):
             end_angle = start_angle + dtheta
             return ((task_center[0] + radius * math.cos(end_angle),
                      task_center[1] + radius * math.sin(end_angle)),
-                     travel)
+                    travel)
 
         for robot in self.task.assigned_robots:
             assert robot.assigned_task is self.task
@@ -331,13 +332,13 @@ class TikzDraw(MetaEvent):
             \begin{{tikzpicture}}[scale=0.6]
             \draw[step=1.0,gray,very thin] (0,0) grid (12,12);
             \draw (12,12) node[fill=gray,anchor=north east] {{$t = {:.1f}$}};
-            '''
-            .format(state.clock))
+            '''.format(state.clock))
         for obj in state.tasks + state.robots:
             state.tikz.write(obj.tikz_repr(state))
         state.tikz.write(r'\end{tikzpicture}' + '\n')
         if any(not isinstance(e, MetaEvent) for e in state.eventq):
             state.push_event(TikzDraw(state.clock + state.tikz_interval))
+
 
 @attr.s(cmp=False)
 class ROSDraw(MetaEvent):
@@ -363,7 +364,6 @@ class SimState:
     ros = attr.ib(default=False, type=bool)
 
     clock = attr.ib(default=0.0, type=float)
-
 
     robots = attr.ib(default=attr.Factory(list), init=False)
     tasks = attr.ib(default=attr.Factory(list), init=False)
@@ -464,4 +464,3 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     run_sim(**vars(args))
-
