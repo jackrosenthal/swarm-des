@@ -147,6 +147,12 @@ class ROSRobot(mp.Process):
 
         spawn(self.initpos[0], self.initpos[1], 0, self.turtlename)
 
+        rospy.wait_for_service('{}/set_pen'.format(self.turtlename))
+        pen = rospy.ServiceProxy(
+            '{}/set_pen'.format(self.turtlename),
+            turtlesim.srv.SetPen)
+        pen(0, 0, 0, 0, 1)
+
         rospy.wait_for_service('{}/teleport_absolute'.format(self.turtlename))
         tp = rospy.ServiceProxy(
             '{}/teleport_absolute'.format(self.turtlename),
@@ -348,7 +354,9 @@ class ROSDraw(MetaEvent):
     def __call__(self, state):
         for robot in state.robots:
             pos, trav = robot.position(state.clock)
-            robot.rosrobot.queue.put((*pos, 0))
+            posn, travn = robot.position(state.clock + state.ros)
+            theta = circle_angle(posn, center=pos)
+            robot.rosrobot.queue.put((*pos, theta))
         state.push_event(ROSDraw(state.clock + state.ros))
 
 
