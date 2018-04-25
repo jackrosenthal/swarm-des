@@ -163,6 +163,95 @@ class ROSRobot(mp.Process):
             tp(*tpargs)
 
 
+class ROSNumberDrawer(mp.Process):
+    """
+    A ROS robot for drawing numbers at task locations.
+    """
+
+    digits = {
+        0: {0, 1, 2, 3, 4, 5},
+        1: {0, 5},
+        2: {1, 0, 6, 3, 4},
+        3: {4, 5, 6, 0, 1},
+        4: {2, 6, 0, 5},
+        5: {1, 2, 6, 5, 4},
+        6: {1, 2, 6, 5, 4, 3},
+        7: {1, 0, 5},
+        8: {0, 1, 2, 3, 4, 5, 6},
+        9: {1, 2, 6, 0, 5, 4},
+        10: {1, 2, 6, 0, 3, 5},
+        11: {2, 3, 4, 5, 6},
+        12: {1, 2, 3, 4},
+        13: {0, 5, 4, 3, 6},
+        14: {1, 2, 3, 4, 6},
+        15: {3, 6, 2, 1},
+    }
+
+    segpos = [
+        (0.5, 1),
+        (-0.5, 1),
+        (-0.5, 0),
+        (-0.5, -1),
+        (0.5, -1),
+        (0.5, 0),
+        (-0.5, 0),
+    ]
+
+    def __init__(self, digit, center, segwidth=0.3):
+        self.center = center
+        self.digit = digit
+        self.segwidth = segwidth
+        self.turtlename = 'turtle{}'.format(1000 + digit)
+        super().__init__()
+
+    def run(self):
+        import rospy
+        import turtlesim.srv
+        self.rospy = rospy
+        rospy.init_node(self.turtlename)
+
+        rospy.wait_for_service('kill')
+        kill = rospy.ServiceProxy(
+            'kill',
+            turtlesim.srv.Kill)
+        try:
+            kill(self.turtlename)
+        except rospy.service.ServiceException:
+            pass
+
+        rospy.wait_for_service('spawn')
+        spawn = rospy.ServiceProxy(
+            'spawn',
+            turtlesim.srv.Spawn)
+
+        spawn(self.center[0] + self.segwidth / 2,
+              self.center[1],
+              math.pi / 2,
+              self.turtlename)
+
+        rospy.wait_for_service('{}/set_pen'.format(self.turtlename))
+        pen = rospy.ServiceProxy(
+            '{}/set_pen'.format(self.turtlename),
+            turtlesim.srv.SetPen)
+
+        rospy.wait_for_service('{}/teleport_absolute'.format(self.turtlename))
+        tp = rospy.ServiceProxy(
+            '{}/teleport_absolute'.format(self.turtlename),
+            turtlesim.srv.TeleportAbsolute)
+
+        for seg in range(7):
+            if seg in ROSNumberDrawer.digits[self.digit]:
+                pen(255, 255, 255, 1, 0)
+            else:
+                pen(0, 0, 0, 0, 1)
+            sp = ROSNumberDrawer.segpos[seg]
+            tp(*(
+                [self.segwidth * sp[k] + self.center[k]
+                    for k in (0, 1)] + [0]))
+
+        kill(self.turtlename)
+
+
 @attr.s(cmp=False)
 class Event:
     """
@@ -186,6 +275,7 @@ class RobotCreated(Event):
         if state.ros:
             self.robot.rosrobot = ROSRobot(
                 self.robot.id, (*self.robot.position(state.clock)[0], 0))
+            self.robot.rosrobot.daemon = True
             self.robot.rosrobot.start()
 
 
@@ -205,6 +295,11 @@ class TaskCreated(Event):
                 robot.assigned_task = task
                 state.push_event(
                     BeginTravelToTask(state.clock, robot, position, task))
+
+        if state.ros:
+            drawer = ROSNumberDrawer(self.task.id, self.task.position)
+            drawer.start()
+            drawer.join()
 
 
 def iter_chunks(it, n=3):
