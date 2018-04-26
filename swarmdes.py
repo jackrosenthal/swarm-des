@@ -489,17 +489,26 @@ class SimState:
         return ev
 
 
-def run_sim(battery_seed, num_robots=6, task_creations=(), *args, **kwargs):
+def run_sim(battery_seed,
+            num_robots=6,
+            scatter=False,
+            task_creations=(),
+            *args, **kwargs):
     state = SimState(*args, **kwargs)
     state.battery_rng = random.Random(battery_seed)
 
     for k in range(num_robots):
+        initpos = (0.5, k + 0.5)
+        if scatter:
+            initpos = tuple(
+                state.battery_rng.uniform(0.5, 11.5)
+                for _ in range(2))
         state.push_event(
             RobotCreated(
                 time=0,
                 robot=Robot(
                     id=k + 1,
-                    position=(lambda k: lambda t: ((0.5, k + 0.5), 0))(k),
+                    position=(lambda p: lambda t: (p, 0))(initpos),
                     initial_battery_level=state.battery_rng.uniform(95, 100))))
 
     for i, t in enumerate(task_creations):
@@ -559,6 +568,11 @@ if __name__ == '__main__':
         type=float,
         default=1.0,
         help="Interval between TikZ snapshots")
+    parser.add_argument(
+        "--scatter",
+        action="store_true",
+        default=False,
+        help="Scatter robots")
     parser.add_argument(
         "--ros",
         type=float,
