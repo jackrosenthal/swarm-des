@@ -14,6 +14,10 @@
 \usepackage{fancyhdr}
 \usepackage{lastpage}
 \usepackage{flushend}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\algrenewcomment[1]{\(\triangleright\) #1}
+
 \renewcommand{\headrulewidth}{0pt}
 \cfoot{Page {\thepage} {of} {\pageref{LastPage}}}
 
@@ -38,6 +42,11 @@
     pdfsubject={Computer Simulation Techniques}
 }
 
+\usepackage{amsmath}
+\usepackage{amssymb}
+\let\le=\leqslant
+\let\ge=\geqslant
+
 \begin{document}
 
 \maketitle
@@ -56,11 +65,10 @@
     Our paper proposes a modified discrete event simulation technique for
     simulating many agents operating in the same continuous space. We do so by
     adding two new techniques to a discrete event simulation we call
-    \emph{cross-cutting} and \emph{cancellation}. We then model the modified
-    discrete event simulation using a context-free grammar. Finally, we provide
-    an evaluation of the computational complexity of our modified discrete
-    event simulation technique when compared to time-step agent-based
-    simulations, both theoretically and through an empirical evaluation.
+    \emph{cross-cutting} and \emph{cancellation}. Finally, we provide an
+    evaluation of the computational complexity of our modified discrete event
+    simulation technique when compared to time-step agent-based simulations
+    through a simple swarm robotics scenario.
 \end{abstract}
 
 \section{Introduction}
@@ -159,12 +167,17 @@ example in a picture.
 
 \end{figure}
 
-Finally, we show how this modified kind of discrete event simulation can be
-modeled using a context-free grammar.
-
-The remainder of the paper is organized as follows...
+The remainder of the paper is organized as follows: Section~\ref{sec:related}
+discusses related work in the field of both simulation, multi-agent systems,
+and robotics, section~\ref{sec:statement} formally defines the problem we are
+trying to solve, section~\ref{sec:technique} defines a generalized simulation
+technique for implementing a discrete event simulation with multiple agents in
+motion through a continous space, and section~\ref{sec:evaluation} evaluates
+our simlulation technique using a scenario in swarm robotics. Finally,
+section~\ref{sec:conclusion} draws conclusions from our work.
 
 \section{Related Work}
+\label{sec:related}
 
 Swarm robotics in a new and rising field, and many simulators for swarm
 robotics systems have been developed. For example, ARGoS \cite{argos}, Gazebo
@@ -174,35 +187,254 @@ these simulators use a time-step agent-based model for their simulations. Our
 computational model is implemented using a discrete event simulation (see
 \cite[p.~3]{leemispark} for the definition of a discrete event simulation),
 which is a fundamentally different simulation model than all of the previously
-mentioned simulators.
+mentioned simulators. To our knowledge, we are the first to simulate a
+multi-agent robot system using a discrete event simulation.
 
-\section{Problem Description}
+\emph{Cancellation} is not a new technique in discrete event simulations.
+\cite{schruben1983} includes canceling edges in their event graph theory, and
+even \cite{elimcancel1} and \cite{elimcancel2} both show how canceling events
+can be eliminated from a simulation model: cancellation is merely a convenience
+from a software standpoint. To our knowledge, we are the first to take
+advantage of cancellation in discrete event simulations to make multi-agent
+continuous motion possible.
 
-Describe with technical detail / math the problem that you are solving.  What
-information is given, and what are you trying to find?  Equivalently, what are
-the inputs and outputs of your algorithm?  Describe the technical challenges
-for this work.
+\section{Problem Statement}
+\label{sec:statement}
 
-\section{Method (/ Algorithm)}
+Our problem can be formally defined as followed:
 
-Describe with technical detail / math / pseudocode how your solution works.
-Block diagrams are often helpful, either here or in the problem description.
+\begin{quote}
+    Given $N\ (N \ge 2)$ agents in a shared $k$-dimensional $(k \ge 2)$
+    coordinate system, for which the agents preform some amount of planning
+    that may change, devise a generalized technique used to implement a
+    discrete event simulation of the agents motion in the continuous space.
+\end{quote}
 
-\section{Results / (Experiments/Evaluation)}
+In addition, we will discuss technique to prevent collision of agents in the
+space, although this is not always needed (for example, a colony of ants often
+times will climb on top of each other, so the technique allows for simulation
+of agents directly on the same point).
 
+\section{Simulation Technique}
+\label{sec:technique}
 
-Describe the performance of method / algorithm / implementation.
-Explain your experimental setup: hardware / software versions, test
-problems, and metrics.  Present results for each test.  Plots and
-tables are often helpful to present the results.  Explain and
-interpret the results.  Where they as expected?  Why did the approach
-perform as observed?
+In order to discuss the techniques for writing a discrete event simulation of
+multiple agents in a continuous space, we must first define the common action
+of the agents: \emph{travel}. While in the real world, travelling and planning
+algorithms may be implemented continuously, or in a time-step based simulation
+from step-to-step, we must extend the traditional definitions of travel to
+support usage in a discrete event simulation:
+
+\begin{quote}
+    \textbf{Travel:} travel is the act of \emph{planning a complete path} from
+    one position (the start) to another (the goal), and attempting to execute
+    that plan at least partially, completing the plan unless another reason
+    arises.
+\end{quote}
+
+For an agent to preform travel, they must take advantage of our
+\emph{cross-cutting} method. Our cross-cutting method is outlined in
+Algorithm~\ref{alg:crosscut}.
+
+\begin{algorithm}
+    \caption{Cross-cutting Travel Algorithm}
+    \label{alg:crosscut}
+
+    \begin{algorithmic}
+        \Procedure{InitializeAgent}{$A, A_i$}
+            \State \Comment{The agent must have an initial cross-cutting function when
+            it is created}
+            \State $p_A(t) \gets t \mapsto A_i$
+        \EndProcedure
+
+        \Procedure{Travel}{$A, A_n, c, P$}
+            \State \Comment{Agent $A$ plans travel to point $A_n$ at time $c$ with
+            planning function $P$}
+            \State \Comment{Before updating the cross-cutting function, the simulation
+            may want to make note of other intermediate variables, such as
+            distance traveled}
+            \State $p_A(t) \gets P(p_A(c), A_n)$
+            \ForAll{$B$, where $B$ is an agent and not ourselves}
+                \State{Symbolically determine if $B_p(t)$ has an intersection with
+                $A_p(t)$}
+                \State{Schedule cancellation and notice events appropriately}
+            \EndFor
+        \EndProcedure
+    \end{algorithmic}
+\end{algorithm}
+
+\subsection{Planning Considerations}
+
+While Algorithm~\ref{alg:crosscut} is sufficient to prevent collision, it
+always considers the agent who scheduled travel after another to have the
+precedence in collision avoidance.
+
+In order to avoid rescheduling the initial agent's travel, the planning
+algorithm used may wish to consider the travel of the other agents in the
+system and plan around some (or all) of their routes. Taking this into account,
+the precedence of the agents in the system can be considered in any order.
+
+\section{Evaluation: Using a Simple Swarm Robotics Scenario}
+\label{sec:evaluation}
+
+To evaluate the effectiveness of our generalized simulation approach, we
+implement a simple scenario in swarm robotics to simulate using our techniques:
+\begin{itemize}
+    \item \textbf{Robots} are the agents in the system. Each robot has a
+        continuous 2-dimensional position, and maintains an internal state of
+        the distance traveled.
+    \item \textbf{Tasks} appear at specified times and locations. Each task has
+        a defined \textbf{radius}, which specifies the distance at which the
+        task may be circled in order to preform work on it.
+    \item When a task appears, a selected set of robots goes to the task to
+        preform work on it. When all robots selected are at the task, they
+        begin circling around it. The selection function can be any
+        partitioning function, but we implement as a simple \emph{split into
+        $k$ partitions based on robot id} algorithm\footnote{This approach may
+        seem too simple, but we are using this to test and evaluate the
+        effectiveness of our simulation technique rather than of our planning
+        technique. If one were using our simulation technique to implement a
+        novel planning algorithm, presumably, this approach would be better.}
+\end{itemize}
+
+We define the following event types to handle this simulation:
+\begin{itemize}
+    \item \texttt{RobotCreated}: A new robot has appeared in the system, and
+        its initial cross-cutting function has been set.
+    \item \texttt{TaskCreated}: A new task has been created. This event
+        causes the robots to partition and spawns \texttt{BeginTravelToTask}
+        events for the robots who travel to the task.
+    \item \texttt{BeginTravelToTask}: The robot has begun travel to a task, and
+        has scheduled an \texttt{ArrivalAtTask} for when it plans to arrive.
+        The cross-cutting function is evaluated to determine current position,
+        and the internal distance measure of the robot is updated accordingly.
+        This event has the ability to cancel events, as the robot may not be
+        travelling to where it was originally.
+    \item \texttt{ArrivalAtTask}: The robot has arrived at the task, and is
+        ready to begin work. If all robots have arrived at the task, a
+        \texttt{TaskBegin} event is created. This event may be cancelled, as
+        simulation agents may begin travel to another task once they are
+        already on the way to the task.
+    \item \texttt{TaskBegin}: All robots have arrived at the task, and work
+        begins on the task. When this happens, the cross-cutting function of
+        the robot has been updated to reflect their motion in a circle around
+        the task. This event may be cancelled for the same reasons as
+        \texttt{ArrivalAtTask}.
+\end{itemize}
+
+Figures \ref{fig:simstart}, \ref{fig:sim73}, and \ref{fig:simlast} show a
+visualization of the various parts of the simulation.
+
+\begin{figure}[ht]
+    \includegraphics[width=\linewidth]{sim1.pdf}
+
+    \caption{At the beginning of the simulation with $N = 9$ robots, the robots
+    start on the left hand side.}
+    \label{fig:simstart}
+
+\end{figure}
+
+\begin{figure}[ht]
+    \includegraphics[width=\linewidth]{sim73.pdf}
+
+    \caption{At $t = 1$, task $1$ appears, and the robots navigate to the
+    task.}
+    \label{fig:sim73}
+
+\end{figure}
+
+\begin{figure}[ht]
+    \includegraphics[width=\linewidth]{sim468.pdf}
+
+    \caption{As new tasks appear, the robots partition themselves amongst the
+    tasks.}
+    \label{fig:simlast}
+\end{figure}
+
+We implemented the simulation in Python 3.6 and used Python's \texttt{heapq}
+module for our underlying event queue data structure. The simulation software
+can be obtained at the following URL:
+
+\url{https://github.com/jackrosenthal/swarm-des}
+
+\subsection{Performance Evaluation}
+
+The discrete event simulation technique will outperform a time-step based
+technique (arbitrarily) when large intervals are placed between different tasks,
+as the time-step simulation has to simulate the intermediate time intervals.
+But how does the simulation preform when given closely-spaced tasks (resulting
+in a large number of canceled events)?
+
+To answer this question, we tested with $2$ tasks placed at the same time. This
+causes the robots to initially schedule the first scheduled task, then half of
+the robots will have to cancel an event and go to the second task instead.
+
+Tests were preformed on Intel® Core™ i7-6700K CPU at $4.00$ GHz running Linux.
+Results for this selected set of parameters can be seen in
+Table~\ref{tbl:times}. Note that these selected set of parameters was an edge
+case designed to cause many cancellations and is not representative of the
+overall performance of the simulation.
+
+\begin{table}[hb]
+    \caption{Overlapping Tasks: Performance}
+    \label{tbl:times}
+    \begin{center}
+    \begin{tabular}{| c | c |}
+        \hline
+        \textbf{Robots} & \textbf{Execution Time} (seconds) \\
+        \hline
+        $50$ & $0.06$ \\
+        \hline
+        $100$ & $0.09$ \\
+        \hline
+        $500$ & $0.36$ \\
+        \hline
+        $1000$ & $1.13$ \\
+        \hline
+        $2000$ & $4.24$ \\
+        \hline
+        $5000$ & $18.61$ \\
+        \hline
+    \end{tabular}
+    \end{center}
+\end{table}
+
+The notable decay in performance is a result of the large heap event queue with
+cancelled events sitting in it. Performance for this edge case could be
+increased by switching to a more efficient data structure for event list
+management (such as \emph{Henriksen's Algorithm} \cite{henriksen}, a hybrid
+data structure overlaying a binary search tree on a linked list) or even
+eliminating cancellation from the simulation model \cite{elimcancel1}.
 
 \section{Conclusion}
+\label{sec:conclusion}
 
-In a few paragraphs, summarize all of the above sections.  Emphasize especially
-any novel contribution of your project.  Give any final thoughts on challenges
-faced, lessons learned, and future steps for the work.
+Our work introduces discrete event simulation to the simulation of
+continuous multi-agent systems, a field which previously only implemented
+simulations using time-step based models. By doing so, implementers of
+simulations are able to simulate their models for time scales which would be
+infusible in a time-step simulation.
+
+Implementing in a discrete event simulation does have a number of drawbacks:
+\begin{enumerate}
+    \item Developing the computational model requires significantly more
+        effort: extra care must be taken to developing appropriate planning
+        algorithms for the simulation rather than simply encoding the agent's
+        logic for each time-step.
+    \item Verification of the computational model is no longer trivial as it is
+        with time-step agent-based simulations. We verified our computational
+        model using a visualization to ensure that the cross-cutting functions
+        behaved as we thought we had made them. Developing better verification
+        procedures for computational models of these systems could be further
+        work in this area.
+\end{enumerate}
+
+Simulation is important to the field of robot planning. By implementing motion
+planning algorithms in simulation (especially stochastic algorithms), the
+performance of the planning algorithm can be evaluated without the need for
+many expensive robots. By implementing in a discrete event simulation, time
+scales which would be infeasible in traditional time-step simulations become
+computable, at the cost of reduced ease of implementation and verification.
 
 \printbibliography
 
